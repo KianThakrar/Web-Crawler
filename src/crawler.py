@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic, sleep
-from typing import Callable
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-
 
 BASE_URL = "https://quotes.toscrape.com/"
 
@@ -114,7 +113,7 @@ class QuoteCrawler:
         fetch_html: Callable[[str], str] | None = None,
     ) -> list[CrawledPage]:
         """Crawl the paginated quote listing pages until the chain ends."""
-        current_url = start_url or self.base_url
+        current_url: str | None = start_url or self.base_url
         visited: set[str] = set()
         pages: list[CrawledPage] = []
 

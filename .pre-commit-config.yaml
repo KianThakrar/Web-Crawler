@@ -11,5 +11,5 @@ repos:
         additional_dependencies:
           - beautifulsoup4
           - requests
+          - types-beautifulsoup4
           - types-requests
-

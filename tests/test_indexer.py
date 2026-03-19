@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.crawler import QuoteCrawler
+from src.crawler import CrawledPage, QuoteCrawler
 from src.indexer import (
     IndexPersistenceError,
     SearchIndex,
@@ -17,7 +17,6 @@ from src.indexer import (
     tokenize_text,
 )
 
-
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -26,7 +25,7 @@ def load_fixture(name: str) -> str:
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
 
 
-def build_fixture_pages() -> list:
+def build_fixture_pages() -> list[CrawledPage]:
     """Build structured pages from the fixture HTML documents."""
     crawler = QuoteCrawler(politeness_delay=6.0)
     return [
@@ -72,3 +71,92 @@ def test_load_index_rejects_invalid_schema(tmp_path: Path) -> None:
 
     with pytest.raises(IndexPersistenceError, match="Unsupported index schema"):
         load_index(broken_index)
+
+
+def test_load_index_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(IndexPersistenceError, match="not found"):
+        load_index(tmp_path / "missing.json")
+
+
+def test_load_index_rejects_invalid_json_and_non_object_payloads(tmp_path: Path) -> None:
+    invalid_json_path = tmp_path / "invalid.json"
+    invalid_json_path.write_text("{not-json}", encoding="utf-8")
+
+    with pytest.raises(IndexPersistenceError, match="not valid JSON"):
+        load_index(invalid_json_path)
+
+    list_payload_path = tmp_path / "list.json"
+    list_payload_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(IndexPersistenceError, match="JSON object"):
+        load_index(list_payload_path)
+
+
+def test_from_dict_rejects_invalid_metadata_shapes() -> None:
+    with pytest.raises(IndexPersistenceError, match="missing required metadata"):
+        SearchIndex.from_dict({"schema_version": 1})
+
+    invalid_documents = {
+        "schema_version": 1,
+        "base_url": "https://quotes.toscrape.com/",
+        "built_at": "2026-03-19T12:00:00Z",
+        "document_count": 1,
+        "term_count": 0,
+        "documents": [],
+        "terms": {},
+    }
+    with pytest.raises(IndexPersistenceError, match="invalid document or term sections"):
+        SearchIndex.from_dict(invalid_documents)
+
+
+def test_from_dict_rejects_invalid_nested_entries() -> None:
+    base_payload = {
+        "schema_version": 1,
+        "base_url": "https://quotes.toscrape.com/",
+        "built_at": "2026-03-19T12:00:00Z",
+        "document_count": 1,
+        "term_count": 1,
+        "documents": {
+            "https://quotes.toscrape.com/": {
+                "title": "Quotes to Scrape",
+                "quote_count": 2,
+                "word_count": 10,
+            }
+        },
+        "terms": {
+            "good": {
+                "document_frequency": 1,
+                "postings": {
+                    "https://quotes.toscrape.com/": {
+                        "positions": [1, 2],
+                        "term_frequency": 2,
+                    }
+                },
+            }
+        },
+    }
+
+    broken_document = dict(base_payload)
+    broken_document["documents"] = {"https://quotes.toscrape.com/": []}
+    with pytest.raises(IndexPersistenceError, match="Document metadata"):
+        SearchIndex.from_dict(broken_document)
+
+    broken_term = dict(base_payload)
+    broken_term["terms"] = {"good": []}
+    with pytest.raises(IndexPersistenceError, match="Term entries"):
+        SearchIndex.from_dict(broken_term)
+
+    broken_posting = dict(base_payload)
+    broken_posting["terms"] = {
+        "good": {
+            "document_frequency": True,
+            "postings": {"https://quotes.toscrape.com/": {"positions": [1], "term_frequency": 1}},
+        }
+    }
+    with pytest.raises(IndexPersistenceError, match="must be an integer"):
+        SearchIndex.from_dict(broken_posting)
+
+    broken_counts = dict(base_payload)
+    broken_counts["document_count"] = 2
+    with pytest.raises(IndexPersistenceError, match="counts do not match"):
+        SearchIndex.from_dict(broken_counts)
