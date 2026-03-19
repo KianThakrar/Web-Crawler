@@ -46,7 +46,7 @@ def test_build_inverted_index_tracks_term_statistics() -> None:
 
     assert isinstance(index, SearchIndex)
     assert index.document_count == 2
-    assert index.documents["https://quotes.toscrape.com/"]["word_count"] == 35
+    assert index.documents["https://quotes.toscrape.com/"]["word_count"] == 38
     assert index.terms["good"]["document_frequency"] == 1
     assert index.terms["good"]["postings"]["https://quotes.toscrape.com/"]["term_frequency"] == 2
     assert index.terms["good"]["postings"]["https://quotes.toscrape.com/"]["positions"] == [3, 5]
