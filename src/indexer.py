@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import json
 from pathlib import Path
-import re
 from typing import TypedDict
-import unicodedata
 
 from src.crawler import BASE_URL, CrawledPage
-
 
 INDEX_SCHEMA_VERSION = 1
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)?")
@@ -79,8 +78,8 @@ class SearchIndex:
         try:
             base_url = str(payload["base_url"])
             built_at = str(payload["built_at"])
-            document_count = int(payload["document_count"])
-            term_count = int(payload["term_count"])
+            document_count = _coerce_int(payload["document_count"], field_name="document_count")
+            term_count = _coerce_int(payload["term_count"], field_name="term_count")
             raw_documents = payload["documents"]
             raw_terms = payload["terms"]
         except (KeyError, TypeError, ValueError) as exc:
@@ -97,8 +96,8 @@ class SearchIndex:
             try:
                 documents[url] = DocumentMetadata(
                     title=str(metadata["title"]),
-                    quote_count=int(metadata["quote_count"]),
-                    word_count=int(metadata["word_count"]),
+                    quote_count=_coerce_int(metadata["quote_count"], field_name="quote_count"),
+                    word_count=_coerce_int(metadata["word_count"], field_name="word_count"),
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise IndexPersistenceError("Document metadata entry is invalid.") from exc
@@ -109,7 +108,10 @@ class SearchIndex:
                 raise IndexPersistenceError("Term entries must be stored as object mappings.")
 
             try:
-                document_frequency = int(entry["document_frequency"])
+                document_frequency = _coerce_int(
+                    entry["document_frequency"],
+                    field_name="document_frequency",
+                )
                 raw_postings = entry["postings"]
             except (KeyError, TypeError, ValueError) as exc:
                 raise IndexPersistenceError("Term entry is missing posting data.") from exc
@@ -120,11 +122,19 @@ class SearchIndex:
             postings: dict[str, Posting] = {}
             for url, posting in raw_postings.items():
                 if not isinstance(url, str) or not isinstance(posting, dict):
-                    raise IndexPersistenceError("Posting entries must be stored as object mappings.")
+                    raise IndexPersistenceError(
+                        "Posting entries must be stored as object mappings."
+                    )
 
                 try:
-                    positions = [int(position) for position in posting["positions"]]
-                    term_frequency = int(posting["term_frequency"])
+                    positions = [
+                        _coerce_int(position, field_name="positions")
+                        for position in posting["positions"]
+                    ]
+                    term_frequency = _coerce_int(
+                        posting["term_frequency"],
+                        field_name="term_frequency",
+                    )
                 except (KeyError, TypeError, ValueError) as exc:
                     raise IndexPersistenceError("Posting entry is invalid.") from exc
 
@@ -159,6 +169,20 @@ def tokenize_text(text: str) -> list[str]:
     return TOKEN_PATTERN.findall(ascii_text)
 
 
+def _coerce_int(value: object, *, field_name: str) -> int:
+    """Safely coerce JSON metadata to integers."""
+    if isinstance(value, bool):
+        raise IndexPersistenceError(f"Index field {field_name!r} must be an integer.")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise IndexPersistenceError(f"Index field {field_name!r} must be an integer.") from exc
+    raise IndexPersistenceError(f"Index field {field_name!r} must be an integer.")
+
+
 def build_inverted_index(
     pages: list[CrawledPage],
     *,
@@ -191,17 +215,11 @@ def build_inverted_index(
             posting["term_frequency"] += 1
             posting["positions"].append(position)
 
-    ordered_documents = {
-        url: documents[url]
-        for url in sorted(documents)
-    }
+    ordered_documents = {url: documents[url] for url in sorted(documents)}
     ordered_terms = {
         term: TermEntry(
             document_frequency=terms[term]["document_frequency"],
-            postings={
-                url: terms[term]["postings"][url]
-                for url in sorted(terms[term]["postings"])
-            },
+            postings={url: terms[term]["postings"][url] for url in sorted(terms[term]["postings"])},
         )
         for term in sorted(terms)
     }
