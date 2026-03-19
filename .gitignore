@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Local coursework files
+.DS_Store
+COMP3011_Coursework2_Brief__2025_2026.pdf

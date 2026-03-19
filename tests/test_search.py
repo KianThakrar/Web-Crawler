@@ -1,0 +1,2 @@
+"""Search and CLI tests."""
+
